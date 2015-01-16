@@ -1,0 +1,148 @@
+---
+title: "PracticalML_R"
+author: "Luis J. Gutierrez"
+date: "Wednesday, January 14, 2015"
+output: html_document
+---
+
+This is an R Markdown document. 
+
+The objective is quantify how well people is doing exercises of Weight
+Lifting using dynamic data comming from sensors located in different parts
+of the body.  This is extremely useful to avoid physical damages and
+injuries. as is mentioned in the abstract of the paper "Qualitative
+Activity Recognition of Weight Lifting Exercises" published by Eduardo
+Velloso (Lancaster Univ. UK), Andreas Bulling (Max Planck Inst. for
+Informatics, Germany), Hans Gellersen (Lancaster Univ., UK), Wallace
+Ugulino (PUC University of Rio de Janeiro, Brazil), Hugo Fuks (PUC
+University of Rio de Janeiro, Brazil), "In this work we define quality of
+execution and investigate three aspects that pertain to qualitative
+activity recognition: specifying correct execution, detecting execution
+mistakes, providing feedback on the to the user" 
+
+To meet that objective and using the provided data sets, the idea is
+identify a number of attributed to predict the exercise quality with an 95%
+minimum.
+
+First Step is read de Training data set. 
+
+The data set "ml-training3.csv", is a preprocesses file where all empty columns were deleted, also were deleted all the date/time columns, because I suppose that the day or the time of the day is not relevant to do a well done exercise routine.
+
+```{r}
+MData=read.csv("pml-training3.csv",header=TRUE,sep=";",dec=",",na.string="NA");
+head(MData)
+```
+
+After a couple of tests I realize the column is classified wrongly when data is missing or it is incorrectly entered. That requires identify these columns to correct the errors.  The next sentence identify if the column is not numeric.
+
+```{r}
+n<-dim(MData)[2]; for (i in 1:n) { if (!is.numeric(MData[,i])) print(i);}
+```
+if the result is 49, then is the expected result because the last column is an string ("categorical"). Others column numbers shown columns with bad written or missing values. 
+
+To get a summary with the statistics bof each column and check the data,
+
+```{r}
+summary(MData)
+```
+
+After read the data set, the next step is the feature selection. To do that I used two
+strategies. First algorithm Single Value Decomposition (SVD) was computed. When the
+feature matrix is standardized, the PCA algorithm for dimension reduction is equivalent
+to the eigenvalue problem. Computing the singular values of the standardized Attribute
+Matrix, is possible to get the singular value vector from the diagonal Matrix of the SVD
+algorithm. In the singular values vector, when we observe the first values, we see the
+most significative singular values (or the singular vector that provides more value to
+the end result). If the sum of that singular values represent the 95% of the total value,
+means that this set of attributes have the largest portion of the useful part of the
+signal and the rest of attributes only are (mainly) noise.
+
+fisrt step, generate an standarized Matriz from the original data set.
+
+```{r}
+MyData=scale(MData[,-49],center=TRUE,scale=TRUE);
+```
+
+
+```{r}
+head(MyData)
+```
+Computing the singular value decomposition algorithm to MyData,
+```{r}
+s<-svd(MyData)
+```
+
+The singular values are in the diagonal matrix s$d, calculating the number of attributes needed to reach 95%, we get 36 attributes. With the first 36 attributes we could get a dimensional reduction of the problem, where the 95% of the signal significance is captured.
+
+```{r}
+sum(s$d[1:36]/sum(s$d))
+```
+
+A different approach is to use the covariance matrix for evaluating and selecting the features of a stronger relationship with each other. The idea is to select a small set of attributes that significantly represent the desired result.
+
+Calculating the covariance matrix
+
+```{r}
+Cov<-cov(MyData)
+```
+An ordering the attributes from highest cov. to lower covariance
+
+```{r}
+Vc=abs(Cov[,48]/sum(Cov[,48]))
+Vco<-order(Vc,decreasing=TRUE)
+```
+Selecting the first 30 attributes ordered by covariance 
+```{r}
+MyData<-MData[Vco[1:30]]
+head(MyData)
+```
+to compare results, we train the Random Forest model to predict class with the original set of Data (MData) the results are,
+```{r}
+library(caret)
+#dividing the original data set in Training and Test
+InTrain=createDataPartition(y=MData$classe,p=0.75,list=FALSE)
+MTrain=MData[InTrain,]
+MTest=MData[-InTrain,]
+#Training the Random Forest Model
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+Model<-train(classe~., data=MTrain, trControl=train_control, method="rf")
+Pred<-predict(Model,MTest)
+```
+After 50 minutes, the Model was Trained with a accuracy of 99%. 
+
+With a reduced set of attributes (the 17 attributes with the highest correlation index), the model is
+
+```{r}
+#create a redused set of data for training
+MTrainReduced<-MTrain[,Vco[1:17]]
+MTrainReduced$classe<-MTrain[,49]
+Model<-train(classe~., data=MTrainReduced, trControl=train_control, method="rf")
+MTestReduced<-MTest[,Vco[1:17]]
+MtestReduced$class<-Mtest[,49]
+#Doing the prediction with the trained model
+Pred<-predict(Model,MTestReduced)
+#And asking for the statistics against the Test set 
+confusionMatrix(Pred,MTestReduced$classe)
+```
+The confusion Matrix statistics shows a accuracy of 98% of the model for the 17 variables with the highest Correlation Index.
+
+Validating with the Test data set available in **https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv**, and after clean it, It can be read.
+```{r}
+#The column selected are
+names(Vc[Vco[1:17]])
+MValData=read.csv("pml-testing2.csv",header=TRUE,sep=";",dec=".",na.string="NA")
+head(MValData)
+#making the repdiction
+predict(Model,MValData)
+```
+=========================================================================================
+**Conclusion**
+=========================================================================================
+
+Most of the time necessary for the final prediction was invested in the prepossessing
+step, cleaning the data set. The second part of the work was to validate the minimum set
+of attributes that can do a good prediction, it is really possible get a good predictor
+with a minimum set of variables? . The data selected was the raw data that with presence
+in all the cases and after that, select the most significant attributes using a 
+correlation matrix and PCA analysis. The most significant attributes gives an accuracy of
+98%. The model with 17 attributes was used to predict the 20 submission cases successfully.
